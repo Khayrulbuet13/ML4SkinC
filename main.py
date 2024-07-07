@@ -9,14 +9,29 @@ from Project import Project
 from data import get_dataloader
 from data.transformation import train_transform, val_transform
 from models.MIML import MLP, CombinedModel
-from utils import device
+from utils import device, calculate_auc
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-from callbacks import CometCallback
+from callbacks import CometCallback, PartialAUCMonitor
 from logger import logging
 
 from torchvision import models
 import torch.nn as nn
+
+
+from poutyne.framework.callbacks import Callback
+import numpy as np
+from sklearn.metrics import roc_curve, auc
+
+from poutyne.framework.callbacks import Callback
+import numpy as np
+from sklearn.metrics import roc_curve, auc
+
+from poutyne.framework.callbacks import Callback
+import torch
+import numpy as np
+from sklearn.metrics import roc_curve, auc
+
 
 def main():
     project = Project()
@@ -24,7 +39,7 @@ def main():
         'lr': 5e-5,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'T4vsT8',
+        'model': 'partial_auc_resnet101',
         'train_resnet': True  # Allows controlling trainability of ResNet from params
     }
 
@@ -54,14 +69,17 @@ def main():
     # Initialize Comet Experiment
     with open('secrets.json') as f:
         secrets = json.load(f)
-        print(secrets)
-    experiment = Experiment(api_key=secrets['COMET_API_KEY'], project_name="skin", workspace="khayrulbuet13")
+    experiment = Experiment(api_key=secrets['COMET_API_KEY'], 
+                    project_name="skin", 
+                    workspace="khayrulbuet13")
     experiment.log_parameters(params)
+    experiment.set_name(params['model'])
+
 
 
     
     # Model setup
-    model = models.resnet50(weights='IMAGENET1K_V1')
+    model = models.resnet101(weights='IMAGENET1K_V1')
     num_ftrs = model.fc.in_features
 
 
@@ -91,12 +109,22 @@ def main():
     # Callbacks
     current_time = datetime.datetime.now().strftime('%d %B %H:%M')
     checkpoint_path = os.path.join(project.checkpoint_dir, f"{current_time}-{params['model']}.pt")
+
+
+    # callbacks = [
+    #     PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
+    #     ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
+    #     ModelCheckpoint(checkpoint_path, save_best_only=True, verbose=True),
+    #     CometCallback(experiment)
+    # ]
     callbacks = [
-        ReduceLROnPlateau(monitor="val_acc", patience=20, verbose=True),
-        ModelCheckpoint(checkpoint_path, save_best_only=True, verbose=True),
-        EarlyStopping(monitor="val_acc", patience=40, mode='max'),
+        PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
+        ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
+        ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
         CometCallback(experiment)
     ]
+
+
 
     # Training
     poutyne_model.fit_generator(train_dl, val_dl, epochs=params['epochs'], callbacks=callbacks)
@@ -105,6 +133,11 @@ def main():
     loss, test_acc = poutyne_model.evaluate_generator(test_dl)
     logging.info(f'Test Accuracy={test_acc}')
     experiment.log_metric('test_acc', test_acc)
+
+    # Calculate AUC for test data
+    test_auc = calculate_auc(poutyne_model, test_dl, device)
+    logging.info(f'Test AUC={test_auc}')
+    experiment.log_metric('test_auc', test_auc)
 
 if __name__ == '__main__':
     main()

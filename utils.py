@@ -55,3 +55,27 @@ def plot_dl(dl, labels_map=None ,n=3):
         plt.axis("off")
         plt.imshow(img.permute(1,2,0), cmap="gray") 
     plt.show()
+
+
+
+import torch
+from sklearn.metrics import roc_curve, auc
+
+def calculate_auc(model, data_loader, device):
+    model.network.eval()  # Ensure the model is in evaluation mode
+    true_labels = []
+    predictions = []
+
+    with torch.no_grad():
+        for inputs, labels in data_loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            outputs = model.network(inputs)
+            probabilities = torch.softmax(outputs, dim=1)[:, 1]  # Assuming binary classification
+            predictions.extend(probabilities.cpu().numpy())
+            true_labels.extend(labels.cpu().numpy())
+
+    fpr, tpr, thresholds = roc_curve(true_labels, predictions)
+    auc_score = auc(fpr, tpr)
+    model.network.train()  # Reset to training mode
+    return auc_score
