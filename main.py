@@ -9,7 +9,7 @@ from Project import Project
 from data import get_dataloader
 from data.transformation import train_transform, val_transform
 from models.MIML import MLP, CombinedModel
-from utils import device, calculate_auc
+from utils import device, calculate_auc, get_least_used_gpu
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 from callbacks import CometCallback, PartialAUCMonitor
@@ -33,13 +33,19 @@ import numpy as np
 from sklearn.metrics import roc_curve, auc
 
 
+# Set the least used GPU as visible
+least_used_gpu = get_least_used_gpu()
+os.environ['CUDA_VISIBLE_DEVICES'] = str(least_used_gpu)
+print("Using GPU:", least_used_gpu)
+
+
 def main():
     project = Project()
     params = {
         'lr': 5e-5,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'partial_auc_resnet101',
+        'model': 'miml-with-csv-updated_auc',
         'train_resnet': True  # Allows controlling trainability of ResNet from params
     }
 
@@ -50,12 +56,22 @@ def main():
         'benign': 0,
         'malignant': 1
         }
-
+    columns_to_use = ['age_approx', 'clin_size_long_diam_mm', 'tbp_lv_A',
+       'tbp_lv_Aext', 'tbp_lv_B', 'tbp_lv_Bext', 'tbp_lv_C', 'tbp_lv_Cext',
+       'tbp_lv_H', 'tbp_lv_Hext', 'tbp_lv_L', 'tbp_lv_Lext', 'tbp_lv_areaMM2',
+       'tbp_lv_area_perim_ratio', 'tbp_lv_color_std_mean', 'tbp_lv_deltaA',
+       'tbp_lv_deltaB', 'tbp_lv_deltaL', 'tbp_lv_deltaLB',
+       'tbp_lv_deltaLBnorm', 'tbp_lv_eccentricity', 'tbp_lv_minorAxisMM',
+       'tbp_lv_nevi_confidence', 'tbp_lv_norm_border', 'tbp_lv_norm_color',
+       'tbp_lv_perimeterMM', 'tbp_lv_radial_color_std_max', 'tbp_lv_stdL',
+       'tbp_lv_stdLExt', 'tbp_lv_symm_2axis', 'tbp_lv_symm_2axis_angle',
+       'tbp_lv_x', 'tbp_lv_y', 'tbp_lv_z']
     # Data loading
     train_dl, val_dl, test_dl = get_dataloader( train_dir=os.path.join(project.data_dir, "train"),
                                                 val_dir=os.path.join(project.data_dir, "val"),
-                                                train_csv=os.path.join(project.data_dir, "train.csv"),
-                                                val_csv=os.path.join(project.data_dir, "val.csv"),
+                                                train_csv=os.path.join(project.data_dir, "train_age_fixed.csv"),
+                                                val_csv=os.path.join(project.data_dir, "val_age_fixed.csv"),
+                                                columns_to_use=columns_to_use,
                                                 class_mapping = class_mapping,
                                                 train_transform=train_transform,
                                                 val_transform=val_transform,
@@ -79,16 +95,16 @@ def main():
 
     
     # Model setup
-    model = models.resnet101(weights='IMAGENET1K_V1')
-    num_ftrs = model.fc.in_features
+    # model = models.resnet18(weights='IMAGENET1K_V1')
+    # num_ftrs = model.fc.in_features
 
 
-    model.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes (benign and malignant)
-    model = model.to(device)
+    # model.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes (benign and malignant)
+    # model = model.to(device)
 
 
-    # mlp = MLP(input_size=3, hidden_size=32, output_size=16)
-    # model = CombinedModel(mlp=mlp, n_classes=2, train_resnet=params['train_resnet']).to(device)
+    mlp = MLP(input_size=34, hidden_size=128, output_size=16)
+    model = CombinedModel(mlp=mlp, n_classes=2, train_resnet=params['train_resnet']).to(device)
 
 
     # Load existing model if available
@@ -98,12 +114,13 @@ def main():
         logging.info(f'Model loaded from {model_saved_path}')
 
     # Model summaries
-    # logging.info(summary(model.resnet18, input_size=(3, 64, 64)))
-    # logging.info(summary(mlp, input_size=(3,)))
-    logging.info(summary(model, input_size=(3, 64, 64)))
+    logging.info(summary(model.resnet18, input_size=(3, 64, 64)))
+    logging.info(summary(mlp, input_size=(34,)))
+    # logging.info(summary(model, input_size=(3, 64, 64)))
 
     # Optimizer and training configuration
     optimizer = optim.Adam(model.parameters(), lr=params['lr'])
+    # poutyne_model = Model(model, optimizer, "cross_entropy").to(device)
     poutyne_model = Model(model, optimizer, "cross_entropy", batch_metrics=["accuracy"]).to(device)
 
     # Callbacks
@@ -111,16 +128,13 @@ def main():
     checkpoint_path = os.path.join(project.checkpoint_dir, f"{current_time}-{params['model']}.pt")
 
 
-    # callbacks = [
-    #     PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
-    #     ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
-    #     ModelCheckpoint(checkpoint_path, save_best_only=True, verbose=True),
-    #     CometCallback(experiment)
-    # ]
     callbacks = [
         PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
-        ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
-        ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
+        # ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
+        ReduceLROnPlateau(monitor="val_auc", mode='max', patience=20, verbose=True),
+        # ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
+        ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
+        EarlyStopping(monitor="val_auc", patience=20, mode='max'),
         CometCallback(experiment)
     ]
 

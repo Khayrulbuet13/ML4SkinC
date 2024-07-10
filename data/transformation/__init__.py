@@ -3,6 +3,7 @@ import torchvision.transforms as T
 from imgaug import augmenters as iaa
 
 
+    
 class ImgAugTransform:
     """
     Wrapper to allow imgaug to work with Pytorch transformation pipeline
@@ -38,17 +39,12 @@ class ImgAugTransform:
 
 val_transform = T.Compose([T.Resize((64, 64)),
                            T.ToTensor(),
-                           T.Normalize((0.3622, 0.3622, 0.3622), (0.1403, 0.1403, 0.1403)) 
+                           T.Normalize((0.6984, 0.5219, 0.4197), (0.1396, 0.1318, 0.1236)) 
                            ])
 
 train_transform = T.Compose([T.Resize((64, 64)),
-                             T.ColorJitter(brightness = 0.25, contrast=0.25),
-                             T.RandomHorizontalFlip(),
-                             T.RandomVerticalFlip(),
-                             T.RandomRotation(90),
                             ImgAugTransform(),
                              T.ToTensor(),
                              # value calculated by calculating the mean and std of the dataset
-                             T.Normalize((0.3622, 0.3622, 0.3622), (0.1403, 0.1403, 0.1403)) 
-
+                             T.Normalize((0.6984, 0.5219, 0.4197), (0.1396, 0.1318, 0.1236)) 
                              ])

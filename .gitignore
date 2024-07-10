@@ -1,5 +1,10 @@
-__pycache__/*
+# Ignore all __pycache__ directories and their contents
+__pycache__/
+**/__pycache__/
+
 dataset/*
 checkpoint/*
 secrets.json
 dump/*
+file1
+file2

@@ -4,16 +4,11 @@ from torch.utils.data import DataLoader, random_split, WeightedRandomSampler
 from logger import logging
 
 
-
-
-
-
-
-
 def get_dataloader(
         train_dir,
         val_dir,
         train_csv,
+        columns_to_use,
         val_csv,
         class_mapping,
         train_transform=None,
@@ -38,8 +33,8 @@ def get_dataloader(
 
     
 
-    train_ds = MyDataset(csv_file=train_csv, img_dir=train_dir, class_mapping=class_mapping, transform=train_transform)
-    val_ds = MyDataset(csv_file=val_csv, img_dir=val_dir, class_mapping=class_mapping, transform=val_transform)
+    train_ds = MyDataset(csv_file=train_csv, img_dir=train_dir, class_mapping=class_mapping, columns=columns_to_use, transform=train_transform)
+    val_ds = MyDataset(csv_file=val_csv, img_dir=val_dir, class_mapping=class_mapping, columns=columns_to_use, transform=val_transform)
 
     # Assuming 'train_ds' is an instance of MyDataset
     # weights = balanced_weights([(data, label) for data, label in train_ds], len(class_mapping))
@@ -64,46 +59,3 @@ def get_dataloader(
     test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False, *args, **kwargs)
 
     return train_dl, val_dl, test_dl
-
-
-
-
-# def get_dataloader(data_csv, 
-#                    img_dir, 
-#                    class_mapping, 
-#                    train_transform,
-#                    val_transform,
-#                    split=(0.6, 0.2, 0.2), 
-#                    batch_size=32, 
-#                    *args, **kwargs):
-#     """
-#     This function returns the train, validation, and test dataloaders, using a single CSV for input and splitting
-#     the dataset into specified portions.
-
-#     :param data_csv: Path to the CSV file containing data.
-#     :param img_dir: Directory where images are stored.
-#     :param class_mapping: Dictionary mapping class labels to numeric values.
-#     :param transform: Optional transformations to apply to images.
-#     :param split: Tuple indicating how to split the data into train, val, and test sets.
-#     :param batch_size: Number of samples in each batch.
-#     """
-#     # Read the dataset from CSV
-
-    
-
-#     full_dataset = MyDataset(csv_file=data_csv, img_dir=img_dir, class_mapping=class_mapping, transform=transform)
-
-#     # Calculate split lengths
-#     train_size, val_size, test_size = [int(x * len(full_dataset)) for x in split]
-#     test_size = len(full_dataset) - train_size - val_size  # Adjust test size for any rounding off errors
-
-#     # Split the dataset
-#     train_dataset, val_dataset, test_dataset = random_split(full_dataset, [train_size, val_size, test_size])
-#     logging.info(f'Train samples={len(train_dataset)}, Validation samples={len(val_dataset)}, Test samples={len(test_dataset)}')
-
-#     # Create dataloaders
-#     train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, *args, **kwargs)
-#     val_dl = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, *args, **kwargs)
-#     test_dl = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, *args, **kwargs)
-
-#     return train_dl, val_dl, test_dl
