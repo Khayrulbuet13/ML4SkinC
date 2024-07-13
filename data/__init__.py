@@ -1,5 +1,5 @@
 import numpy as np
-from .MyDataset import MyDataset, balanced_weights, calculate_weights
+from .MyDataset import MyDataset, calculate_weights
 from torch.utils.data import DataLoader, random_split, WeightedRandomSampler
 from logger import logging
 

@@ -23,7 +23,8 @@ class MyDataset(Dataset):
         self.img_dir = img_dir
         self.transform = transform
         # Use specified columns if provided, otherwise use all columns starting from the third column
-        self.csv_data = self.data_frame[columns]
+        if columns is not None:
+            self.csv_data = self.data_frame[columns]
         # Ensure the image names include the file extension if it's missing
         self.data_frame['image_name'] = self.data_frame['isic_id'].apply(lambda x: f"{x}.jpg" if not x.lower().endswith('.jpg') else x)
         # Directly use the numeric targets from the dataset
@@ -44,30 +45,11 @@ class MyDataset(Dataset):
             logging.error(f"Image not found: {img_path}")
             return None  # Consider how you handle missing images in your training loop
 
-        csv_data_row = self.csv_data.iloc[idx]
-        csv = torch.tensor(csv_data_row.values, dtype=torch.float)
         target = self.targets[idx]
-        return (image, csv), target
+        return image, target
 
     
 
-
-def balanced_weights(dataset, nclasses):
-    # Initialize a list to count occurrences of each class
-    count = [0] * nclasses
-    # Count each class's occurrences in the dataset
-    for _, label in dataset:
-        count[label] += 1
-    # Initialize a list to hold the weight for each class
-    weight_per_class = [0.] * nclasses
-    # Total number of samples in the dataset
-    N = float(sum(count))
-    # Calculate the weight for each class
-    for i in range(nclasses):
-        weight_per_class[i] = N / float(count[i])
-    # Assign weight to each sample in the dataset based on its class
-    weights = [weight_per_class[label] for _, label in dataset]
-    return weights
 
 
 def calculate_weights(file_path):
