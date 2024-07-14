@@ -17,7 +17,7 @@ from logger import logging
 
 from torchvision import models
 import torch.nn as nn
-from losses import FocalLoss
+from losses import VSLoss
 
 
 from poutyne.framework.callbacks import Callback
@@ -46,10 +46,11 @@ def main():
         'lr': 5e-5,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'resnet18-FocalLoss_v2',
+        'model': 'resnet18-VS_loss-unbalanced_datasetv2',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
-        'alpha': .25,
-        'gamma': 4
+        'omega': 0.9,  # Example value for omega
+        'gamma': 0.4,  # Example value for gamma
+        'tau': 1.0    # Example value for tau
     }
 
     # Log device usage
@@ -104,7 +105,18 @@ def main():
 
     # Optimizer and training configuration
     optimizer = optim.Adam(model.parameters(), lr=params['lr'])
-    criterion = FocalLoss(alpha=params['alpha'], gamma=params['gamma'])
+
+    # Initialize VSLoss
+    # Calculate class distribution
+    benign_count = 0
+    malignant_count = 0
+    for _, target in train_dl:
+        benign_count += (target == 0).sum().item()
+        malignant_count += (target == 1).sum().item()
+    class_dist = [benign_count, malignant_count]
+    # class_dist = [len(train_dl.dataset) - sum(y for _, y in train_dl), sum(y for _, y in train_dl)]  # Example class distribution
+    criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+
     poutyne_model = Model(model, optimizer, criterion, batch_metrics=["accuracy"]).to(device)
 
     # Callbacks
@@ -139,3 +151,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
