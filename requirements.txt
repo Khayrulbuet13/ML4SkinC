@@ -9,3 +9,4 @@ torchsummary==1.5.1
 torchvision==0.15.2
 Poutyne==1.17.1
 pandas==2.2.2
+catboost==1.2.5

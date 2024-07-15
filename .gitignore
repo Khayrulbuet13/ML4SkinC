@@ -8,3 +8,4 @@ secrets.json
 dump/*
 file1
 file2
+catboost_info/*
