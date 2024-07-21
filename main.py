@@ -87,7 +87,6 @@ def main():
     experiment.set_name(params['model'])
 
 
-
     
     # Model setup
     model = cnn.to(device)
