@@ -1,2 +1,1 @@
-from .CometCallback import CometCallback
-from .utils import PartialAUCMonitor
+from .CometCallback import CometCallback, PartialAUCMonitor, SchedulerCallback

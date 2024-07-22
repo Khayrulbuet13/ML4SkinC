@@ -12,7 +12,7 @@ from models.cnn import cnn
 from utils import device, calculate_auc, get_least_used_gpu
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-from callbacks import CometCallback, PartialAUCMonitor
+from callbacks import CometCallback, SchedulerCallback, PartialAUCMonitor
 from logger import logging
 
 from torchvision import models
@@ -20,18 +20,12 @@ import torch.nn as nn
 from losses import VSLoss
 
 
-from poutyne.framework.callbacks import Callback
-import numpy as np
-from sklearn.metrics import roc_curve, auc
-
-from poutyne.framework.callbacks import Callback
-import numpy as np
-from sklearn.metrics import roc_curve, auc
 
 from poutyne.framework.callbacks import Callback
 import torch
 import numpy as np
 from sklearn.metrics import roc_curve, auc
+from timm.scheduler.cosine_lr import CosineLRScheduler
 
 
 # Set the least used GPU as visible
@@ -43,10 +37,11 @@ print("Using GPU:", least_used_gpu)
 def main():
     project = Project()
     params = {
-        'lr': 5e-5,
+        'lr': 0.001,
+        'weight_decay': .0001,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'resnet18-VS_loss-unbalanced_datasetv2',
+        'model': 'resnet18-VS_loss-cosinescheduler',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.4,  # Example value for gamma
@@ -104,7 +99,12 @@ def main():
 
 
     # Optimizer and training configuration
-    optimizer = optim.Adam(model.parameters(), lr=params['lr'])
+    optimizer = optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+    scheduler = CosineLRScheduler(optimizer, t_initial=20, lr_min=2e-8,
+                    cycle_mul=2.0, cycle_decay=.5, cycle_limit=5,
+                    warmup_t=10, warmup_lr_init=1e-6, warmup_prefix=False, t_in_epochs=True,
+                    noise_range_t=None, noise_pct=0.67, noise_std=1.0,
+                    noise_seed=42, k_decay=1.0, initialize=True)
 
     # Initialize VSLoss
     # Calculate class distribution
@@ -114,6 +114,7 @@ def main():
         benign_count += (target == 0).sum().item()
         malignant_count += (target == 1).sum().item()
     class_dist = [benign_count, malignant_count]
+    print(f'Class distribution: {class_dist}')
     # class_dist = [len(train_dl.dataset) - sum(y for _, y in train_dl), sum(y for _, y in train_dl)]  # Example class distribution
     criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
 
@@ -124,6 +125,7 @@ def main():
     checkpoint_path = os.path.join(project.checkpoint_dir, f"{current_time}-{params['model']}.pt")
 
 
+
     callbacks = [
         PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
         # ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
@@ -131,7 +133,8 @@ def main():
         # ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
         ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
         EarlyStopping(monitor="val_auc", patience=20, mode='max'),
-        CometCallback(experiment)
+        CometCallback(experiment, optimizer),
+        SchedulerCallback(scheduler, optimizer)
     ]
 
 
