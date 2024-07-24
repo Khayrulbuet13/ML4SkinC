@@ -1,47 +1,35 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+
+from comet_ml import Experiment
 import torch
 import os
 import json
 import datetime
-from comet_ml import Experiment
 import torch.optim as optim
 from torchsummary import summary
 from Project import Project
 from data import get_dataloader
 from data.transformation import train_transform, val_transform
 from models.cnn import cnn
-from utils import device, calculate_auc, get_least_used_gpu
+from utils import device, calculate_auc
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 from callbacks import CometCallback, SchedulerCallback, PartialAUCMonitor
 from logger import logging
-
-from torchvision import models
-import torch.nn as nn
 from losses import VSLoss
 
 
-
-from poutyne.framework.callbacks import Callback
-import torch
-import numpy as np
-from sklearn.metrics import roc_curve, auc
-from timm.scheduler.cosine_lr import CosineLRScheduler
-
-
-# Set the least used GPU as visible
-least_used_gpu = get_least_used_gpu()
-os.environ['CUDA_VISIBLE_DEVICES'] = str(least_used_gpu)
-print("Using GPU:", least_used_gpu)
 
 
 def main():
     project = Project()
     params = {
-        'lr': 0.001,
-        'weight_decay': .0001,
+        'lr': 0.0001,
+        'weight_decay': .001,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'resnet18-VS_loss-cosinescheduler',
+        'model': 'resnet18-VS_loss-SGD_lr0.0001',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.4,  # Example value for gamma
@@ -49,7 +37,7 @@ def main():
     }
 
     # Log device usage
-    logging.info(f'Using device={device} 🚀')
+    logging.info(f'Using device={device}: 🚀')
 
     class_mapping = {
         'benign': 0,
@@ -99,12 +87,8 @@ def main():
 
 
     # Optimizer and training configuration
-    optimizer = optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
-    scheduler = CosineLRScheduler(optimizer, t_initial=20, lr_min=2e-8,
-                    cycle_mul=2.0, cycle_decay=.5, cycle_limit=5,
-                    warmup_t=10, warmup_lr_init=1e-6, warmup_prefix=False, t_in_epochs=True,
-                    noise_range_t=None, noise_pct=0.67, noise_std=1.0,
-                    noise_seed=42, k_decay=1.0, initialize=True)
+    optimizer = optim.SGD(model.parameters(), lr=params['lr'], momentum=0.9)
+
 
     # Initialize VSLoss
     # Calculate class distribution
@@ -134,7 +118,6 @@ def main():
         ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
         EarlyStopping(monitor="val_auc", patience=20, mode='max'),
         CometCallback(experiment, optimizer),
-        SchedulerCallback(scheduler, optimizer)
     ]
 
 

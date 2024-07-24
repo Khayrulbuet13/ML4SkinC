@@ -94,19 +94,28 @@ def calculate_auc(model, data_loader, device):
 
 
 
-import subprocess
-import os
+# import subprocess
+# import os
 
-def get_least_used_gpu():
-    # Command to get GPU usage (memory and compute)
-    smi_output = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used,utilization.gpu', '--format=csv,noheader,nounits']).decode()
+# def get_least_used_gpu():
+#     # Command to get GPU usage (memory and compute)
+#     smi_output = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used,utilization.gpu', '--format=csv,noheader,nounits']).decode()
 
-    # Parse the output to get a list of (memory used, gpu utilization) tuples
-    gpu_stats = [tuple(map(int, line.split(', '))) for line in smi_output.strip().split('\n')]
+#     # Parse the output to get a list of (memory used, gpu utilization) tuples
+#     gpu_stats = [tuple(map(int, line.split(', '))) for line in smi_output.strip().split('\n')]
     
-    # Calculate a simple score by adding memory usage and GPU utilization (you can customize this)
-    usage_scores = [memory + utilization for memory, utilization in gpu_stats]
+#     # Calculate a simple score by adding memory usage and GPU utilization (you can customize this)
+#     usage_scores = [memory + utilization for memory, utilization in gpu_stats]
 
-    # Get the index of the GPU with the lowest score
-    least_used_gpu = usage_scores.index(min(usage_scores))
-    return least_used_gpu
+#     # Get the index of the GPU with the lowest score
+#     least_used_gpu = usage_scores.index(min(usage_scores))
+#     return least_used_gpu
+
+
+# import GPUtil
+
+# def get_least_used_gpu():
+#     GPUs = GPUtil.getGPUs()
+#     gpu_loads = [(gpu.memoryUsed, gpu.load, i) for i, gpu in enumerate(GPUs)]
+#     least_used_gpu = min(gpu_loads, key=lambda x: (x[0], x[1]))[2]
+#     return least_used_gpu
