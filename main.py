@@ -1,5 +1,7 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+# from utils import get_least_used_gpu
+# os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from comet_ml import Experiment
 import torch
@@ -12,29 +14,33 @@ from Project import Project
 from data import get_dataloader
 from data.transformation import train_transform, val_transform
 from models.cnn import cnn
-from utils import device, calculate_auc
+from utils import device, calculate_auc, show_dl
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 from callbacks import CometCallback, SchedulerCallback, PartialAUCMonitor
 from logger import logging
 from losses import VSLoss
 
+from timm.scheduler.cosine_lr import CosineLRScheduler
+
 
 
 
 def main():
     project = Project()
+
     params = {
-        'lr': 0.0001,
+        'lr': 2e-5,
         'weight_decay': .001,
         'batch_size': 64,
         'epochs': 1000,
-        'model': 'resnet18-VS_loss-SGD_lr0.0001',
+        'model': 'resnet50-VS_loss-timm-best_pram',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
-        'gamma': 0.4,  # Example value for gamma
+        'gamma': 0.9,  # Example value for gamma
         'tau': 1.0    # Example value for tau
     }
+
 
     # Log device usage
     logging.info(f'Using device={device}: 🚀')
@@ -60,6 +66,11 @@ def main():
     
 
 
+    # show images
+    show_dl(train_dl, 'Train DL', n=3)
+    show_dl(test_dl, 'Test DL', n=3)
+
+
     # Initialize Comet Experiment
     with open('secrets.json') as f:
         secrets = json.load(f)
@@ -77,17 +88,22 @@ def main():
 
 
     # Load existing model if available
-    model_saved_path = os.path.join(project.checkpoint_dir, "24 March 17:29-old-normalized.pt")
-    if os.path.exists(model_saved_path):
-        model.load_state_dict(torch.load(model_saved_path))
-        logging.info(f'Model loaded from {model_saved_path}')
+    # model_saved_path = os.path.join(project.checkpoint_dir, "24 March 17:29-old-normalized.pt")
+    # if os.path.exists(model_saved_path):
+    #     model.load_state_dict(torch.load(model_saved_path))
+    #     logging.info(f'Model loaded from {model_saved_path}')
 
     # Model summaries
     logging.info(summary(model, input_size=(3, 64, 64)))
 
 
     # Optimizer and training configuration
-    optimizer = optim.SGD(model.parameters(), lr=params['lr'], momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+    scheduler = CosineLRScheduler(optimizer, t_initial=20, lr_min=2e-8,
+                    cycle_mul=2.0, cycle_decay=.5, cycle_limit=5,
+                    warmup_t=10, warmup_lr_init=1e-6, warmup_prefix=False, t_in_epochs=True,
+                    noise_range_t=None, noise_pct=0.67, noise_std=1.0,
+                    noise_seed=42, k_decay=1.0, initialize=True)
 
 
     # Initialize VSLoss
@@ -113,7 +129,7 @@ def main():
     callbacks = [
         PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
         # ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
-        ReduceLROnPlateau(monitor="val_auc", mode='max', patience=20, verbose=True),
+        ReduceLROnPlateau(monitor="val_auc", mode='max', patience=10, verbose=True),
         # ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
         ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
         EarlyStopping(monitor="val_auc", patience=20, mode='max'),

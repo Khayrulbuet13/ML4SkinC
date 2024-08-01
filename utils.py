@@ -34,15 +34,17 @@ def show_dl_combined(dl, n=3):
     plt.show()
     
     
-def show_dl(dl, n=3):
+def show_dl(dl, title, n=3):
     batch = None
     for batch in dl:
         break
     imgs = batch[0][:n*n]
     grid = make_grid(imgs, nrow =n, padding=20)
     plt.imshow(grid.numpy().transpose((1, 2, 0)))
+    plt.title(title)
     plt.tight_layout()
     plt.show()
+
 
 import matplotlib.pyplot as plt
 import torch
@@ -71,7 +73,7 @@ def plot_dl(dl,  n=6, labels_map=None,):
 
 
 import torch
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_auc_score
 
 def calculate_auc(model, data_loader, device):
     model.network.eval()  # Ensure the model is in evaluation mode
@@ -87,10 +89,13 @@ def calculate_auc(model, data_loader, device):
             predictions.extend(probabilities.cpu().numpy())
             true_labels.extend(labels.cpu().numpy())
 
-    fpr, tpr, thresholds = roc_curve(true_labels, predictions)
-    auc_score = auc(fpr, tpr)
-    model.network.train()  # Reset to training mode
-    return auc_score
+    # Calculate pAUC using sklearn's roc_auc_score with max_fpr
+    partial_auc_scaled = roc_auc_score(true_labels, predictions, max_fpr=0.2)
+
+    # Scale from [0.5, 1.0] to [0.0, 0.2]
+    partial_auc = (partial_auc_scaled - 0.5) * 0.4
+
+    return partial_auc
 
 
 
@@ -112,10 +117,11 @@ def calculate_auc(model, data_loader, device):
 #     return least_used_gpu
 
 
-# import GPUtil
+import GPUtil
 
-# def get_least_used_gpu():
-#     GPUs = GPUtil.getGPUs()
-#     gpu_loads = [(gpu.memoryUsed, gpu.load, i) for i, gpu in enumerate(GPUs)]
-#     least_used_gpu = min(gpu_loads, key=lambda x: (x[0], x[1]))[2]
-#     return least_used_gpu
+def get_least_used_gpu():
+    GPUs = GPUtil.getGPUs()
+    gpu_loads = [(gpu.memoryUsed, gpu.load, i) for i, gpu in enumerate(GPUs)]
+    least_used_gpu = min(gpu_loads, key=lambda x: (x[0], x[1]))[2]
+    print(f'Least used GPU: {least_used_gpu}')
+    return least_used_gpu
