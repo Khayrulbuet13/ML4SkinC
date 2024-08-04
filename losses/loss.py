@@ -85,6 +85,29 @@ class VSLoss(nn.Module):
     
 
 
+class VSLossAug(nn.Module):
+    '''
+    Cite: https://github.com/orparask/VS-Loss/blob/main/class_imbalance/losses.py
+    '''
+
+    def __init__(self, class_dist, device, omega=0.5, gamma=0.3, tau=1.0):
+        super().__init__()
+        if len(class_dist) == 2:
+            self.omega_list = get_binary_omega_list(omega, device)
+        else:
+            print(f'Warning: Hyperparameter Omega is not being used since this is a"\
+                  " multi-class dataset.')
+            self.omega_list = get_omega_list(class_dist, device, k=1)
+        self.delta_list = get_delta_list(class_dist, gamma, device)
+        self.iota_list = get_iota_list(class_dist, tau, device)
+
+
+    def forward(self, x, y_a, y_b, lam):
+        outputs = x / self.delta_list + self.iota_list
+        return lam * F.cross_entropy(outputs, y_a, weight=self.omega_list) + (1 - lam) * F.cross_entropy(outputs, y_b, weight=self.omega_list)
+
+
+
 import torch
 import torch.nn.functional as F
 import torch.nn as nn

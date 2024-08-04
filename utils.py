@@ -97,6 +97,32 @@ def calculate_auc(model, data_loader, device):
 
     return partial_auc
 
+# def pAUC_matric(outputs, targets):
+#     probabilities = torch.softmax(outputs, dim=1)[:, 1]  # Assuming binary classification
+#     true_labels = targets.cpu().numpy()
+#     predictions = probabilities.cpu().numpy()
+
+#     # Calculate pAUC using sklearn's roc_auc_score with max_fpr
+#     partial_auc_scaled = roc_auc_score(true_labels, predictions, max_fpr=0.2)
+
+#     # Scale from [0.5, 1.0] to [0.0, 0.2]
+#     partial_auc = (partial_auc_scaled - 0.5) * 0.4
+
+#     return partial_auc
+
+
+def pAUC_matric(outputs, targets):
+    probabilities = torch.softmax(outputs, dim=1)[:, 1].detach()  # Assuming binary classification
+    true_labels = targets.cpu().numpy()
+    predictions = probabilities.cpu().numpy()
+
+    # Calculate pAUC using sklearn's roc_auc_score with max_fpr
+    partial_auc_scaled = roc_auc_score(true_labels, predictions, max_fpr=0.2)
+
+    # Scale from [0.5, 1.0] to [0.0, 0.2]
+    partial_auc = (partial_auc_scaled - 0.5) * 0.4
+
+    return partial_auc
 
 
 # import subprocess
@@ -125,3 +151,18 @@ def get_least_used_gpu():
     least_used_gpu = min(gpu_loads, key=lambda x: (x[0], x[1]))[2]
     print(f'Least used GPU: {least_used_gpu}')
     return least_used_gpu
+
+
+import torch
+import numpy as np
+import random
+
+def setup_seed(seed=42):
+    """Sets the seed for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False

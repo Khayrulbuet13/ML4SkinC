@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 from comet_ml import Experiment
 import torch
@@ -14,27 +14,27 @@ from Project import Project
 from data import get_dataloader
 from data.transformation import train_transform, val_transform
 from models.cnn import cnn
-from utils import device, calculate_auc, show_dl
+from utils import device, show_dl, setup_seed
 from poutyne.framework import Model
-from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-from callbacks import CometCallback, SchedulerCallback, PartialAUCMonitor
+from callbacks import CometCallback, EarlyStopping, ModelCheckpoint, pAUCMonitor
 from logger import logging
 from losses import VSLoss
 
-from timm.scheduler.cosine_lr import CosineLRScheduler
-
+# from timm.scheduler.cosine_lr import CosineLRScheduler
+from trainer import SimpleTrainer
 
 
 
 def main():
+    setup_seed()
     project = Project()
 
     params = {
-        'lr': 2e-5,
-        'weight_decay': .001,
-        'batch_size': 64,
+        'lr': 0.016,
+        'weight_decay': .001, # best 0.001
+        'batch_size': 1024,
         'epochs': 1000,
-        'model': 'resnet50-VS_loss-timm-best_pram',
+        'model': 'resnet50-VS_loss-wdeacy.0001',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.9,  # Example value for gamma
@@ -63,7 +63,6 @@ def main():
                                                 batch_size=params['batch_size'],
                                                 pin_memory=True,
                                                 num_workers=8)
-    
 
 
     # show images
@@ -98,27 +97,27 @@ def main():
 
 
     # Optimizer and training configuration
-    optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
-    scheduler = CosineLRScheduler(optimizer, t_initial=20, lr_min=2e-8,
-                    cycle_mul=2.0, cycle_decay=.5, cycle_limit=5,
-                    warmup_t=10, warmup_lr_init=1e-6, warmup_prefix=False, t_in_epochs=True,
-                    noise_range_t=None, noise_pct=0.67, noise_std=1.0,
-                    noise_seed=42, k_decay=1.0, initialize=True)
+    optimizer = optim.SGD(model.parameters(), lr=params['lr'], momentum=0.9)
+    
+    from torch.optim.lr_scheduler import ReduceLROnPlateau
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=5 )
+        
 
 
-    # Initialize VSLoss
-    # Calculate class distribution
-    benign_count = 0
-    malignant_count = 0
-    for _, target in train_dl:
-        benign_count += (target == 0).sum().item()
-        malignant_count += (target == 1).sum().item()
-    class_dist = [benign_count, malignant_count]
+    # # Initialize VSLoss
+    # # Calculate class distribution
+    # benign_count = 0
+    # malignant_count = 0
+    # for _, target in train_dl:
+    #     benign_count += (target == 0).sum().item()
+    #     malignant_count += (target == 1).sum().item()
+    # class_dist = [benign_count, malignant_count]
+    class_dist =  [240412, 223]
+    
     print(f'Class distribution: {class_dist}')
     # class_dist = [len(train_dl.dataset) - sum(y for _, y in train_dl), sum(y for _, y in train_dl)]  # Example class distribution
     criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
-
-    poutyne_model = Model(model, optimizer, criterion, batch_metrics=["accuracy"]).to(device)
+    
 
     # Callbacks
     current_time = datetime.datetime.now().strftime('%d %B %H:%M')
@@ -127,29 +126,26 @@ def main():
 
 
     callbacks = [
-        PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
-        # ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
-        ReduceLROnPlateau(monitor="val_auc", mode='max', patience=10, verbose=True),
-        # ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
-        ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
-        EarlyStopping(monitor="val_auc", patience=20, mode='max'),
-        CometCallback(experiment, optimizer),
+        pAUCMonitor(val_loader=val_dl),
+        CometCallback(experiment),
+        EarlyStopping(monitor='val_pAUC', patience=50, mode='max'),
+        ModelCheckpoint(filepath=checkpoint_path, monitor='val_pAUC', mode='max', save_best_only=True),
     ]
 
 
+    # Initialize trainer
+    trainer = SimpleTrainer(model, optimizer, criterion, device, callbacks=callbacks, scheduler=scheduler, scheduler_monitor='val_acc')
 
-    # Training
-    poutyne_model.fit_generator(train_dl, val_dl, epochs=params['epochs'], callbacks=callbacks)
+    # Train the model
+    trainer.train(train_dl, val_dl, epochs=params['epochs'])
 
-    # Evaluation
-    loss, test_acc = poutyne_model.evaluate_generator(test_dl)
-    logging.info(f'Test Accuracy={test_acc}')
-    experiment.log_metric('test_acc', test_acc)
+    # Evaluate the model
+    test_metrics = trainer.evaluate(test_dl)
+    print(test_metrics)
+    experiment.log_metric('test_loss', test_metrics['test_loss'])
+    experiment.log_metric('test_acc', test_metrics['test_acc'])
+    experiment.log_metric('test_pAUC', test_metrics['test_pAUC'])
 
-    # Calculate AUC for test data
-    test_auc = calculate_auc(poutyne_model, test_dl, device)
-    logging.info(f'Test AUC={test_auc}')
-    experiment.log_metric('test_auc', test_auc)
 
 if __name__ == '__main__':
     main()
