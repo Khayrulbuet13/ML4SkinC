@@ -102,10 +102,17 @@ class VSLossAug(nn.Module):
         self.iota_list = get_iota_list(class_dist, tau, device)
 
 
-    def forward(self, x, y_a, y_b, lam):
+    def forward(self, x, y_a, y_b = None, lam=None):
         outputs = x / self.delta_list + self.iota_list
-        return lam * F.cross_entropy(outputs, y_a, weight=self.omega_list) + (1 - lam) * F.cross_entropy(outputs, y_b, weight=self.omega_list)
+        if lam is not None and y_b is not None:
+            loss1 = F.cross_entropy(outputs, y_a, weight=self.omega_list)
+            loss2 = F.cross_entropy(outputs, y_b, weight=self.omega_list)
+            final_loss = lam * loss1 + (1 - lam) * loss2
 
+        else:
+            final_loss = F.cross_entropy(outputs, y_a, weight=self.omega_list)
+
+        return final_loss
 
 
 import torch

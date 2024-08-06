@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from comet_ml import Experiment
 import torch
@@ -17,11 +17,13 @@ from models.cnn import cnn
 from utils import device, show_dl, setup_seed
 from poutyne.framework import Model
 from callbacks import CometCallback, EarlyStopping, ModelCheckpoint, pAUCMonitor
+from callbacks import MixUp, CutMix
 from logger import logging
-from losses import VSLoss
+from losses import VSLossAug
 
 # from timm.scheduler.cosine_lr import CosineLRScheduler
 from trainer import SimpleTrainer
+import numpy as np
 
 
 
@@ -34,7 +36,7 @@ def main():
         'weight_decay': .001, # best 0.001
         'batch_size': 1024,
         'epochs': 1000,
-        'model': 'resnet50-VS_loss-wdeacy.0001',
+        'model': 'resnet50-VS_loss-mixup-control',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.9,  # Example value for gamma
@@ -97,8 +99,8 @@ def main():
 
 
     # Optimizer and training configuration
-    optimizer = optim.SGD(model.parameters(), lr=params['lr'], momentum=0.9)
-    
+    optimizer = optim.SGD(model.parameters(), lr=params['lr']/10, momentum=0.9)
+
     from torch.optim.lr_scheduler import ReduceLROnPlateau
     scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=5 )
         
@@ -116,7 +118,9 @@ def main():
     
     print(f'Class distribution: {class_dist}')
     # class_dist = [len(train_dl.dataset) - sum(y for _, y in train_dl), sum(y for _, y in train_dl)]  # Example class distribution
-    criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+    mixup = MixUp(alpha=1.0)
+    cutmix = CutMix(beta=1.0, prob=0.5)
+    criterion = VSLossAug(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
     
 
     # Callbacks
@@ -137,7 +141,26 @@ def main():
     trainer = SimpleTrainer(model, optimizer, criterion, device, callbacks=callbacks, scheduler=scheduler, scheduler_monitor='val_acc')
 
     # Train the model
-    trainer.train(train_dl, val_dl, epochs=params['epochs'])
+    def process_batch_fn(model, inputs, targets, loss_fn):
+
+        # if np.random.rand() < 0.5:
+        #     inputs, targets_a, targets_b, lam = mixup(inputs, targets)
+        # else:
+        #     inputs, targets_a, targets_b, lam = cutmix(inputs, targets)
+
+        if np.random.rand() < 0:
+            inputs, targets_a, targets_b, lam = mixup(inputs, targets)
+            outputs = model(inputs)
+            loss = loss_fn(outputs, targets_a, targets_b, lam)
+        else:
+            outputs = model(inputs)
+            loss = loss_fn(outputs, targets)
+
+        return outputs, loss
+    
+    
+
+    trainer.train(train_dl, val_dl, epochs=params['epochs'], process_batch_fn=process_batch_fn)
 
     # Evaluate the model
     test_metrics = trainer.evaluate(test_dl)

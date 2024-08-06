@@ -2,6 +2,7 @@ import torch
 from tqdm import tqdm
 import time
 from sklearn.metrics import roc_auc_score
+import numpy as np
 
 
 # Import callbacks from the separate script
@@ -46,31 +47,37 @@ class SimpleTrainer:
     def compute_learning_rate(self, outputs, targets=None):
         return self.optimizer.param_groups[0]['lr']
 
-    def train(self, train_loader, val_loader, epochs, before_model_fn=None, after_model_fn=None, verbose=True):
+    def train(self, train_loader, val_loader, epochs, process_batch_fn=None, verbose=True):
         self.model.to(self.device)
+
+        initial_lr = 0.016  # Set this to your initial learning rate if not set in the optimizer
+        warmup_epochs = 10
+        base_lr = initial_lr / 10  # Starting LR, 10 times less than initial_lr or your preference
+        max_lr = initial_lr 
+        # Compute incremental LR step
+        lr_increment = (max_lr - base_lr) / warmup_epochs
         
         for epoch in range(epochs):
             epoch_start_time = time.time()
             self.model.train()
             train_metrics = {name: 0.0 for name in self.metrics}
 
+
+
             with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", unit="batch", disable=not verbose) as pbar:
                 for inputs, targets in train_loader:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-                    # Apply the before_model_fn if provided
-                    if before_model_fn:
-                        inputs, targets = before_model_fn(inputs, targets, self.model, self.device)
-
                     self.optimizer.zero_grad()
-                    outputs = self.model(inputs)
 
-                    # Apply the after_model_fn if provided
-                    if after_model_fn:
-                        outputs = after_model_fn(outputs, inputs, targets)
+                    # Process batch
+                    if process_batch_fn:
+                        outputs, loss = process_batch_fn(self.model, inputs, targets, self.loss_fn)
+                    else:
+                        # Default processing
+                        outputs = self.model(inputs)
+                        loss = self.loss_fn(outputs, targets)
+                        loss.backward()
 
-                    loss = self.loss_fn(outputs, targets)
-                    loss.backward()
 
                     if self.gradient_clip_val:
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_val)
@@ -95,9 +102,20 @@ class SimpleTrainer:
             # print(f"Debug - avg_val_metrics: {avg_val_metrics}")  # Debug statement
 
 
+            
             if self.scheduler:
-                metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
-                self.scheduler.step(metric_to_monitor)
+
+                if epoch < warmup_epochs:
+                    lr = base_lr + epoch * lr_increment
+                    for param_group in self.optimizer.param_groups:
+                        param_group['lr'] = lr
+                else:
+                    # After warmup, use ReduceLROnPlateau
+                    metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
+                    self.scheduler.step(metric_to_monitor)
+
+                # metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
+                # self.scheduler.step(metric_to_monitor)
 
             # Time logging
             epoch_duration = time.time() - epoch_start_time 
@@ -112,7 +130,7 @@ class SimpleTrainer:
                 'val_acc': avg_val_metrics['acc'],    # Ensure this pulls from validation metrics
                 'lr': self.optimizer.param_groups[0]['lr']
             }
-            print(f'logs: {logs}')
+
 
             for callback in self.callbacks:
                 callback.on_epoch_end(epoch, logs)
@@ -187,7 +205,7 @@ class SimpleTrainer:
         accuracy = correct / total
         avg_test_metrics = {name: val / len(test_loader) for name, val in test_metrics.items()}
         avg_test_metrics['test_loss'] = test_loss / len(test_loader)
-        avg_test_metrics['test_acc'] = accuracy
+        avg_test_metrics['test_acc'] = accuracy*100
 
         # Calculate test pAUC
         max_fpr = 1 - 0.8
