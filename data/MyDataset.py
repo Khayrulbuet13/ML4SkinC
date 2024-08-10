@@ -24,6 +24,7 @@ class MyDataset(Dataset):
         self.transform = transform
         # Use specified columns if provided, otherwise use all columns starting from the third column
         self.csv_data = self.data_frame[columns]
+        self.number_of_csv_columns = len(self.csv_data.columns)
         # Ensure the image names include the file extension if it's missing
         self.data_frame['image_name'] = self.data_frame['isic_id'].apply(lambda x: f"{x}.jpg" if not x.lower().endswith('.jpg') else x)
         # Directly use the numeric targets from the dataset

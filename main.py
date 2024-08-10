@@ -1,8 +1,12 @@
-import torch
 import os
+# from utils import get_least_used_gpu
+# os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+
+from comet_ml import Experiment
+import torch
 import json
 import datetime
-from comet_ml import Experiment
 import torch.optim as optim
 from torchsummary import summary
 from Project import Project
@@ -12,41 +16,30 @@ from models.MIML import MLP, CombinedModel
 from utils import device, calculate_auc, get_least_used_gpu
 from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-from callbacks import CometCallback, PartialAUCMonitor
+from callbacks import CometCallback, EarlyStopping, ModelCheckpoint, pAUCMonitor
 from logger import logging
+from losses import VSLoss
 
 from torchvision import models
 import torch.nn as nn
-
-
-from poutyne.framework.callbacks import Callback
+from trainer import SimpleTrainer
 import numpy as np
-from sklearn.metrics import roc_curve, auc
-
-from poutyne.framework.callbacks import Callback
-import numpy as np
-from sklearn.metrics import roc_curve, auc
-
-from poutyne.framework.callbacks import Callback
-import torch
-import numpy as np
-from sklearn.metrics import roc_curve, auc
 
 
-# Set the least used GPU as visible
-least_used_gpu = get_least_used_gpu()
-os.environ['CUDA_VISIBLE_DEVICES'] = str(least_used_gpu)
-print("Using GPU:", least_used_gpu)
 
 
 def main():
     project = Project()
     params = {
-        'lr': 5e-5,
-        'batch_size': 64,
+        'lr': 0.016,
+        'weight_decay': .001, # best 0.001
+        'batch_size': 1024,
         'epochs': 1000,
-        'model': 'miml-with-csv-updated_auc',
-        'train_resnet': True  # Allows controlling trainability of ResNet from params
+        'model': 'MIML-VS_loss-large',
+        'train_resnet': True,  # Allows controlling trainability of ResNet from params
+        'omega': 0.95,  # Example value for omega
+        'gamma': 0.9,  # Example value for gamma
+        'tau': 1.0    # Example value for tau
     }
 
     # Log device usage
@@ -92,36 +85,43 @@ def main():
     experiment.set_name(params['model'])
 
 
-
-    
-    # Model setup
-    # model = models.resnet18(weights='IMAGENET1K_V1')
-    # num_ftrs = model.fc.in_features
-
-
-    # model.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes (benign and malignant)
-    # model = model.to(device)
-
-
-    mlp = MLP(input_size=34, hidden_size=128, output_size=16)
+    # Initialize model
+    number_of_csv_columns = train_dl.dataset.number_of_csv_columns
+    mlp = MLP(input_size=number_of_csv_columns, hidden_size=512, output_size=128)
     model = CombinedModel(mlp=mlp, n_classes=2, train_resnet=params['train_resnet']).to(device)
 
 
+
+    # # Initialize VSLoss
+    # # Calculate class distribution
+    # benign_count = 0
+    # malignant_count = 0
+    # for _, target in train_dl:
+    #     benign_count += (target == 0).sum().item()
+    #     malignant_count += (target == 1).sum().item()
+    # class_dist = [benign_count, malignant_count]
+    class_dist =  [240412, 223]
+    print(f'Class distribution: {class_dist}')
+
+    
+    optimizer = optim.SGD(model.parameters(), lr=params['lr']/10, momentum=0.9)
+    from torch.optim.lr_scheduler import ReduceLROnPlateau
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=5 )
+    criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+    
+
+
     # Load existing model if available
-    model_saved_path = os.path.join(project.checkpoint_dir, "24 March 17:29-old-normalized.pt")
-    if os.path.exists(model_saved_path):
-        model.load_state_dict(torch.load(model_saved_path))
-        logging.info(f'Model loaded from {model_saved_path}')
+    # model_saved_path = os.path.join(project.checkpoint_dir, "24 March 17:29-old-normalized.pt")
+    # if os.path.exists(model_saved_path):
+    #     model.load_state_dict(torch.load(model_saved_path))
+    #     logging.info(f'Model loaded from {model_saved_path}')
 
     # Model summaries
-    logging.info(summary(model.resnet18, input_size=(3, 64, 64)))
-    logging.info(summary(mlp, input_size=(34,)))
+    # logging.info(summary(model.resnet18, input_size=(3, 64, 64)))
+    # logging.info(summary(mlp, input_size=(34,)))
     # logging.info(summary(model, input_size=(3, 64, 64)))
 
-    # Optimizer and training configuration
-    optimizer = optim.Adam(model.parameters(), lr=params['lr'])
-    # poutyne_model = Model(model, optimizer, "cross_entropy").to(device)
-    poutyne_model = Model(model, optimizer, "cross_entropy", batch_metrics=["accuracy"]).to(device)
 
     # Callbacks
     current_time = datetime.datetime.now().strftime('%d %B %H:%M')
@@ -129,29 +129,26 @@ def main():
 
 
     callbacks = [
-        PartialAUCMonitor(val_dl, min_tpr=0.8, device=device),
-        # ReduceLROnPlateau(monitor="val_auc", patience=20, verbose=True),
-        ReduceLROnPlateau(monitor="val_auc", mode='max', patience=20, verbose=True),
-        # ModelCheckpoint(checkpoint_path, monitor="val_auc", save_best_only=True, verbose=True),
-        ModelCheckpoint(checkpoint_path, monitor="val_auc", mode='max', save_best_only=True, verbose=True),
-        EarlyStopping(monitor="val_auc", patience=20, mode='max'),
-        CometCallback(experiment)
+        pAUCMonitor(val_loader=val_dl),
+        CometCallback(experiment),
+        EarlyStopping(monitor='val_pAUC', patience=40, mode='max'),
+        ModelCheckpoint(filepath=checkpoint_path, monitor='val_pAUC', mode='max', save_best_only=True),
     ]
 
 
+    # Initialize trainer
+    trainer = SimpleTrainer(model, optimizer, criterion, device, callbacks=callbacks, scheduler=scheduler, scheduler_monitor='val_acc')
+    
 
-    # Training
-    poutyne_model.fit_generator(train_dl, val_dl, epochs=params['epochs'], callbacks=callbacks)
+    trainer.train(train_dl, val_dl, epochs=params['epochs'])
 
-    # Evaluation
-    loss, test_acc = poutyne_model.evaluate_generator(test_dl)
-    logging.info(f'Test Accuracy={test_acc}')
-    experiment.log_metric('test_acc', test_acc)
+    # Evaluate the model
+    test_metrics = trainer.evaluate(test_dl)
+    print(test_metrics)
+    experiment.log_metric('test_loss', test_metrics['test_loss'])
+    experiment.log_metric('test_acc', test_metrics['test_acc'])
+    experiment.log_metric('test_pAUC', test_metrics['test_pAUC'])
 
-    # Calculate AUC for test data
-    test_auc = calculate_auc(poutyne_model, test_dl, device)
-    logging.info(f'Test AUC={test_auc}')
-    experiment.log_metric('test_auc', test_auc)
 
 if __name__ == '__main__':
     main()
