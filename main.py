@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 from comet_ml import Experiment
 import torch
@@ -19,7 +19,7 @@ from poutyne.framework import Model
 from callbacks import CometCallback, EarlyStopping, ModelCheckpoint, pAUCMonitor
 from callbacks import MixUp, CutMix
 from logger import logging
-from losses import VSLossAug
+from losses import VSLoss
 
 # from timm.scheduler.cosine_lr import CosineLRScheduler
 from trainer import SimpleTrainer
@@ -36,9 +36,9 @@ def main():
         'weight_decay': .001, # best 0.001
         'batch_size': 1024,
         'epochs': 1000,
-        'model': 'resnet50-VS_loss-mixup-control',
+        'model': 'resnet18-VS_loss-im224',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
-        'omega': 0.9,  # Example value for omega
+        'omega': 0.95,  # Example value for omega
         'gamma': 0.9,  # Example value for gamma
         'tau': 1.0    # Example value for tau
     }
@@ -120,7 +120,7 @@ def main():
     # class_dist = [len(train_dl.dataset) - sum(y for _, y in train_dl), sum(y for _, y in train_dl)]  # Example class distribution
     mixup = MixUp(alpha=1.0)
     cutmix = CutMix(beta=1.0, prob=0.5)
-    criterion = VSLossAug(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+    criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
     
 
     # Callbacks
@@ -132,35 +132,16 @@ def main():
     callbacks = [
         pAUCMonitor(val_loader=val_dl),
         CometCallback(experiment),
-        EarlyStopping(monitor='val_pAUC', patience=50, mode='max'),
+        EarlyStopping(monitor='val_pAUC', patience=40, mode='max'),
         ModelCheckpoint(filepath=checkpoint_path, monitor='val_pAUC', mode='max', save_best_only=True),
     ]
 
 
     # Initialize trainer
     trainer = SimpleTrainer(model, optimizer, criterion, device, callbacks=callbacks, scheduler=scheduler, scheduler_monitor='val_acc')
-
-    # Train the model
-    def process_batch_fn(model, inputs, targets, loss_fn):
-
-        # if np.random.rand() < 0.5:
-        #     inputs, targets_a, targets_b, lam = mixup(inputs, targets)
-        # else:
-        #     inputs, targets_a, targets_b, lam = cutmix(inputs, targets)
-
-        if np.random.rand() < 0:
-            inputs, targets_a, targets_b, lam = mixup(inputs, targets)
-            outputs = model(inputs)
-            loss = loss_fn(outputs, targets_a, targets_b, lam)
-        else:
-            outputs = model(inputs)
-            loss = loss_fn(outputs, targets)
-
-        return outputs, loss
-    
     
 
-    trainer.train(train_dl, val_dl, epochs=params['epochs'], process_batch_fn=process_batch_fn)
+    trainer.train(train_dl, val_dl, epochs=params['epochs'])
 
     # Evaluate the model
     test_metrics = trainer.evaluate(test_dl)

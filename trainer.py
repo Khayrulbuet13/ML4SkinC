@@ -76,7 +76,9 @@ class SimpleTrainer:
                         # Default processing
                         outputs = self.model(inputs)
                         loss = self.loss_fn(outputs, targets)
-                        loss.backward()
+                    
+                    
+                    loss.backward()
 
 
                     if self.gradient_clip_val:
