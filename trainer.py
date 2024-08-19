@@ -50,12 +50,12 @@ class SimpleTrainer:
     def train(self, train_loader, val_loader, epochs, process_batch_fn=None, verbose=True):
         self.model.to(self.device)
 
-        initial_lr = 0.016  # Set this to your initial learning rate if not set in the optimizer
-        warmup_epochs = 10
-        base_lr = initial_lr / 10  # Starting LR, 10 times less than initial_lr or your preference
-        max_lr = initial_lr 
-        # Compute incremental LR step
-        lr_increment = (max_lr - base_lr) / warmup_epochs
+        # initial_lr = 0.016  # Set this to your initial learning rate if not set in the optimizer
+        # warmup_epochs = 10
+        # base_lr = initial_lr / 10  # Starting LR, 10 times less than initial_lr or your preference
+        # max_lr = initial_lr 
+        # # Compute incremental LR step
+        # lr_increment = (max_lr - base_lr) / warmup_epochs
         
         for epoch in range(epochs):
             epoch_start_time = time.time()
@@ -84,6 +84,7 @@ class SimpleTrainer:
                     if self.gradient_clip_val:
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_val)
 
+
                     self.optimizer.step()
                     
                     train_metrics['loss'] += loss.item()
@@ -104,20 +105,9 @@ class SimpleTrainer:
             # print(f"Debug - avg_val_metrics: {avg_val_metrics}")  # Debug statement
 
 
-            
             if self.scheduler:
-
-                if epoch < warmup_epochs:
-                    lr = base_lr + epoch * lr_increment
-                    for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = lr
-                else:
-                    # After warmup, use ReduceLROnPlateau
-                    metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
-                    self.scheduler.step(metric_to_monitor)
-
-                # metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
-                # self.scheduler.step(metric_to_monitor)
+                metric_to_monitor = avg_val_metrics.get(self.scheduler_monitor, val_loss)
+                self.scheduler.step(metric_to_monitor)
 
             # Time logging
             epoch_duration = time.time() - epoch_start_time 
@@ -132,6 +122,7 @@ class SimpleTrainer:
                 'val_acc': avg_val_metrics['acc'],    # Ensure this pulls from validation metrics
                 'lr': self.optimizer.param_groups[0]['lr']
             }
+            # print(f"Debug - logs: {logs}")  # Debug statement
 
 
             for callback in self.callbacks:

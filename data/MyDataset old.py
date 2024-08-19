@@ -10,7 +10,7 @@ import logging
 # Define custom dataset
 
 class MyDataset(Dataset):
-    def __init__(self, data, img_dir, class_mapping, columns=None, transform=None):
+    def __init__(self, csv_file, img_dir, class_mapping, columns=None, transform=None):
         """
         Initializes the dataset.
         :param csv_file: Path to the CSV file containing data.
@@ -19,15 +19,7 @@ class MyDataset(Dataset):
         :param columns: List of column names to include as features. If None, all columns are included.
         :param transform: Optional transform to be applied on a sample.
         """
-
-        if isinstance(data, str):
-            self.data_frame = pd.read_csv(data, low_memory=False)
-        elif isinstance(data, pd.DataFrame):
-            self.data_frame = data
-        else:
-            raise ValueError("Data should be a filepath or a pandas DataFrame.")
-
-
+        self.data_frame = pd.read_csv(csv_file, low_memory=False)
         self.img_dir = img_dir
         self.transform = transform
         # Use specified columns if provided, otherwise use all columns starting from the third column
@@ -55,21 +47,17 @@ class MyDataset(Dataset):
 
         target = self.targets[idx]
         return image, target
-    
-
-        
-    def get_class_distribution(self):
-        """
-        Returns a count of how many instances exist for each class in the dataset.
-        """
-        return self.data_frame['target'].value_counts().to_dict()
-    
-
 
     
 
 
 
-
+def calculate_weights(file_path):
+    df = pd.read_csv(file_path)
+    class_counts = df['target'].value_counts().to_dict()
+    total_samples = len(df)
+    weights = {cls: total_samples/count for cls, count in class_counts.items()}
+    sample_weights = df['target'].map(weights)
+    return sample_weights.tolist()
 
 

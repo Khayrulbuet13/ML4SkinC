@@ -1,62 +1,77 @@
 import numpy as np
-from .MyDataset import MyDataset, calculate_weights
-from torch.utils.data import DataLoader, random_split, WeightedRandomSampler
+from .MyDataset import MyDataset
+from torch.utils.data import DataLoader
 from logger import logging
-
+import pandas as pd
 
 def get_dataloader(
-        train_dir,
-        val_dir,
-        train_csv,
+        data_dir,
+        csv_path,
         columns_to_use,
-        val_csv,
         class_mapping,
+        total_images=None,
+        split=(0.8, 0.1, 0.1),
+        batch_size=32,
         train_transform=None,
         val_transform=None,
-        split=(0.6, 0.4),
-        batch_size=32,
+        seed=42,  # Set a default seed for reproducibility
         *args, **kwargs):
     """
-    This function returns the train, val, and test dataloaders, using specified mappings for class labels.
-
-    :param train_dir: Directory where training images are stored.
-    :param val_dir: Directory where validation images are stored.
-    :param train_csv: Path to the CSV file for training data.
-    :param val_csv: Path to the CSV file for validation data.
+    This function returns the train, val, and test dataloaders, using a specified mapping for class labels.
+    
+    :param data_dir: Directory where all images are stored.
+    :param csv_path: Path to the CSV file containing data annotations.
     :param class_mapping: Dictionary mapping class labels to numeric values.
-    :param train_transform: Optional transformations to apply to training images.
-    :param val_transform: Optional transformations to apply to validation images.
-    :param split: Tuple indicating how to split validation data into val and test sets.
+    :param total_images: Total number of images to use for the dataset, defaults to all images if not specified.
+    :param split: Tuple indicating how to split data into train, validation, and test sets.
     :param batch_size: Number of samples in each batch.
+    :param train_transform: Transformations to apply to training images.
+    :param val_transform: Transformations to apply to validation and test images.
+    :param seed: Random seed for reproducibility.
     """
-    # Create the datasets using the provided CSV files and class mapping
+    # Set seed for reproducibility
+    np.random.seed(seed)
 
-    
+    # Load the entire dataset
+    full_data = pd.read_csv(csv_path)
 
-    train_ds = MyDataset(csv_file=train_csv, img_dir=train_dir, class_mapping=class_mapping, columns=columns_to_use, transform=train_transform)
-    val_ds = MyDataset(csv_file=val_csv, img_dir=val_dir, class_mapping=class_mapping, columns=columns_to_use, transform=val_transform)
+    # Optionally select a subset of the data
+    if total_images is not None and total_images < len(full_data):
+        full_data = full_data.sample(n=total_images, random_state=seed)
 
-    # Assuming 'train_ds' is an instance of MyDataset
-    # weights = balanced_weights([(data, label) for data, label in train_ds], len(class_mapping))
-    # sampler = WeightedRandomSampler(weights, len(weights))
+    # Shuffle and split indices into train, validation, and test sets
+    indices = np.random.permutation(len(full_data))
+    train_end = int(np.floor(split[0] * len(indices)))
+    val_end = train_end + int(np.floor(split[1] * len(indices)))
 
-    sample_weights = calculate_weights(train_csv)
-    sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
-    
+    train_indices = indices[:train_end]
+    val_indices = indices[train_end:val_end]
+    test_indices = indices[val_end:]
 
-    # Now we want to split the val_ds into validation and test datasets
-    lengths = np.array(split) * len(val_ds)
-    lengths = lengths.astype(int)
-    left = len(val_ds) - lengths.sum()
-    # We need to add the difference due to float approximation to int
-    lengths[-1] += left
 
-    val_ds, test_ds = random_split(val_ds, lengths.tolist())
-    logging.info(f'Train samples={len(train_ds)}, Validation samples={len(val_ds)}, Test samples={len(test_ds)}')
+    # Create data subsets and reset index
+    train_data = full_data.iloc[train_indices].reset_index(drop=True)
+    val_data = full_data.iloc[val_indices].reset_index(drop=True)
+    test_data = full_data.iloc[test_indices].reset_index(drop=True)
 
-    # train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False, sampler=sampler,  *args, **kwargs)
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  *args, **kwargs)
+    # Instantiate datasets
+    train_ds = MyDataset(data=train_data, img_dir=data_dir, class_mapping=class_mapping, columns=columns_to_use, transform=train_transform)
+    val_ds = MyDataset(data=val_data, img_dir=data_dir, class_mapping=class_mapping, columns=columns_to_use, transform=val_transform)
+    test_ds = MyDataset(data=test_data, img_dir=data_dir, class_mapping=class_mapping, columns=columns_to_use, transform=val_transform)
+
+    # Set up the dataloaders
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, *args, **kwargs)
     val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, *args, **kwargs)
     test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False, *args, **kwargs)
+
+    # logging.info(f'Train samples={len(train_ds)}, Validation samples={len(val_ds)}, Test samples={len(test_ds)}')
+    # Log class distributions
+    train_distribution = train_ds.get_class_distribution()
+    val_distribution = val_ds.get_class_distribution()
+    test_distribution = test_ds.get_class_distribution()
+
+    logging.info(f"Train Class Distribution: {train_distribution}")
+    logging.info(f"Validation Class Distribution: {val_distribution}")
+    logging.info(f"Test Class Distribution: {test_distribution}")
 
     return train_dl, val_dl, test_dl
