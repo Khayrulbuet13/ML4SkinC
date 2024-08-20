@@ -8,9 +8,6 @@ import numpy as np
 # Import callbacks from the separate script
 from callbacks import CometCallback, EarlyStopping, ModelCheckpoint
 
-# from torch.cuda.amp import GradScaler, autocast
-# scaler = GradScaler()
-
 
 class SimpleTrainer:
     def __init__(self, model, optimizer, loss_fn, device, callbacks=None, metrics=None, 
@@ -69,11 +66,7 @@ class SimpleTrainer:
 
             with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", unit="batch", disable=not verbose) as pbar:
                 for inputs, targets in train_loader:
-                    # (image, csv), target = inputs.to(self.device), csv.to(self.device), targets.to(self.device)
-                    image, csv = inputs  # Unpack inputs tuple
-                    image, csv, targets = image.to(self.device), csv.to(self.device), targets.to(self.device)  # Move all to the same device
-
-                   
+                    inputs, targets = inputs.to(self.device), targets.to(self.device)
                     self.optimizer.zero_grad()
 
                     # Process batch
@@ -81,7 +74,7 @@ class SimpleTrainer:
                         outputs, loss = process_batch_fn(self.model, inputs, targets, self.loss_fn)
                     else:
                         # Default processing
-                        outputs = self.model(image, csv)
+                        outputs = self.model(inputs)
                         loss = self.loss_fn(outputs, targets)
                     
                     
@@ -102,7 +95,6 @@ class SimpleTrainer:
                             train_metrics[name] += metric_fn(outputs, targets)
 
                     pbar.update(1)
-                    torch.cuda.empty_cache()
 
             # Calculate average training metrics
             avg_train_metrics = {name: val / len(train_loader) for name, val in train_metrics.items()}
@@ -130,6 +122,7 @@ class SimpleTrainer:
                 'val_acc': avg_val_metrics['acc'],    # Ensure this pulls from validation metrics
                 'lr': self.optimizer.param_groups[0]['lr']
             }
+            # print(f"Debug - logs: {logs}")  # Debug statement
 
 
             for callback in self.callbacks:
@@ -155,10 +148,8 @@ class SimpleTrainer:
 
         with torch.no_grad():
             for inputs, targets in val_loader:
-                image, csv = inputs  # Unpack inputs tuple
-                image, csv, targets = image.to(self.device), csv.to(self.device), targets.to(self.device)
-                outputs = self.model(image, csv)
-    
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                outputs = self.model(inputs)
                 loss = self.loss_fn(outputs, targets)
                 val_loss += loss.item()
 
@@ -185,11 +176,8 @@ class SimpleTrainer:
 
         with torch.no_grad():
             for inputs, targets in test_loader:
-                image, csv = inputs  # Unpack inputs tuple
-                image, csv, targets = image.to(self.device), csv.to(self.device), targets.to(self.device)
-                outputs = self.model(image, csv)
-    
-
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                outputs = self.model(inputs)
                 loss = self.loss_fn(outputs, targets)
                 test_loss += loss.item()
 

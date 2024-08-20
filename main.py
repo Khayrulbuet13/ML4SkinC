@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 from comet_ml import Experiment
 import torch
@@ -18,7 +18,7 @@ from poutyne.framework import Model
 from poutyne.framework.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 from callbacks import CometCallback, EarlyStopping, ModelCheckpoint, pAUCMonitor
 from logger import logging
-from losses import VSLoss
+from losses import VSLoss, VSKLloss
 
 from torchvision import models
 import torch.nn as nn
@@ -30,16 +30,19 @@ import numpy as np
 
 def main():
     project = Project()
+
     params = {
         'lr': 0.016,
         'weight_decay': .001, # best 0.001
-        'batch_size': 1024,
+        'batch_size': 512,
         'epochs': 1000,
-        'model': 'MIML-VS_loss-large',
-        'train_resnet': True,  # Allows controlling trainability of ResNet from params
-        'omega': 0.95,  # Example value for omega
-        'gamma': 0.9,  # Example value for gamma
-        'tau': 1.0    # Example value for tau
+        'model': 'MIML-biggerMLP',
+        'train_resnet': False,  # Allows controlling trainability of ResNet from params
+        'omega': 0.9,  # Example value for omega
+        'gamma': 0.1,  # Example value for gamma
+        'tau': 0,    # Example value for tau
+        'kl_lambda': 0.4
+
     }
 
     # Log device usage
@@ -60,18 +63,17 @@ def main():
        'tbp_lv_stdLExt', 'tbp_lv_symm_2axis', 'tbp_lv_symm_2axis_angle',
        'tbp_lv_x', 'tbp_lv_y', 'tbp_lv_z']
     # Data loading
-    train_dl, val_dl, test_dl = get_dataloader( train_dir=os.path.join(project.data_dir, "train"),
-                                                val_dir=os.path.join(project.data_dir, "val"),
-                                                train_csv=os.path.join(project.data_dir, "train_age_fixed.csv"),
-                                                val_csv=os.path.join(project.data_dir, "val_age_fixed.csv"),
-                                                columns_to_use=columns_to_use,
-                                                class_mapping = class_mapping,
-                                                train_transform=train_transform,
-                                                val_transform=val_transform,
-                                                split=(0.6, 0.4),
-                                                batch_size=params['batch_size'],
-                                                pin_memory=True,
-                                                num_workers=8)
+    train_dl, val_dl, test_dl = get_dataloader( data_dir=os.path.join(project.data_dir, "image"),
+                                            csv_path=os.path.join(project.data_dir, "train-metadata_age_fixed.csv"),
+                                            columns_to_use=columns_to_use,
+                                            class_mapping = class_mapping,
+                                            total_images=None,
+                                            train_transform=train_transform,
+                                            val_transform=val_transform,
+                                            split=(0.8, 0.1, 0.1), 
+                                            batch_size=params['batch_size'],
+                                            pin_memory=True,
+                                            num_workers=8)
     
 
 
@@ -87,27 +89,29 @@ def main():
 
     # Initialize model
     number_of_csv_columns = train_dl.dataset.number_of_csv_columns
-    mlp = MLP(input_size=number_of_csv_columns, hidden_size=512, output_size=128)
-    model = CombinedModel(mlp=mlp, n_classes=2, train_resnet=params['train_resnet']).to(device)
+    resnet_weights_path = os.path.join(project.checkpoint_dir, '18 August 12:23-resnet18-x128-kl_lambda0.4.pt')
+    mlp = MLP(input_size=number_of_csv_columns, hidden_size=1024, output_size=128)
+    model = CombinedModel(mlp=mlp, n_classes=2, train_resnet=params['train_resnet'], resnet_weights_path=resnet_weights_path).to(device)
 
 
 
-    # # Initialize VSLoss
-    # # Calculate class distribution
-    # benign_count = 0
-    # malignant_count = 0
-    # for _, target in train_dl:
-    #     benign_count += (target == 0).sum().item()
-    #     malignant_count += (target == 1).sum().item()
-    # class_dist = [benign_count, malignant_count]
-    class_dist =  [240412, 223]
+    # Initialize VSLoss
+    # Calculate class distribution
+    benign_count = 0
+    malignant_count = 0
+    for _, target in train_dl:
+        benign_count += (target == 0).sum().item()
+        malignant_count += (target == 1).sum().item()
+    class_dist = [benign_count, malignant_count]
+    # class_dist =  [240412, 223]
     print(f'Class distribution: {class_dist}')
 
     
     optimizer = optim.SGD(model.parameters(), lr=params['lr']/10, momentum=0.9)
     from torch.optim.lr_scheduler import ReduceLROnPlateau
     scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=5 )
-    criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+    # criterion = VSLoss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'])
+    criterion = VSKLloss(class_dist=class_dist, device=device, omega=params['omega'], gamma=params['gamma'], tau=params['tau'], kl_lambda=params['kl_lambda'])
     
 
 

@@ -10,7 +10,7 @@ import logging
 # Define custom dataset
 
 class MyDataset(Dataset):
-    def __init__(self, csv_file, img_dir, class_mapping, columns=None, transform=None):
+    def __init__(self, data, img_dir, class_mapping, columns=None, transform=None):
         """
         Initializes the dataset.
         :param csv_file: Path to the CSV file containing data.
@@ -19,12 +19,21 @@ class MyDataset(Dataset):
         :param columns: List of column names to include as features. If None, all columns are included.
         :param transform: Optional transform to be applied on a sample.
         """
-        self.data_frame = pd.read_csv(csv_file, low_memory=False)
+
+        if isinstance(data, str):
+            self.data_frame = pd.read_csv(data, low_memory=False)
+        elif isinstance(data, pd.DataFrame):
+            self.data_frame = data
+        else:
+            raise ValueError("Data should be a filepath or a pandas DataFrame.")
+
+
         self.img_dir = img_dir
         self.transform = transform
         # Use specified columns if provided, otherwise use all columns starting from the third column
-        self.csv_data = self.data_frame[columns]
-        self.number_of_csv_columns = len(self.csv_data.columns)
+        if columns is not None:
+            self.csv_data = self.data_frame[columns]
+            self.number_of_csv_columns = len(self.csv_data.columns)
         # Ensure the image names include the file extension if it's missing
         self.data_frame['image_name'] = self.data_frame['isic_id'].apply(lambda x: f"{x}.jpg" if not x.lower().endswith('.jpg') else x)
         # Directly use the numeric targets from the dataset
@@ -45,39 +54,17 @@ class MyDataset(Dataset):
             logging.error(f"Image not found: {img_path}")
             return None  # Consider how you handle missing images in your training loop
 
+
         csv_data_row = self.csv_data.iloc[idx]
         csv = torch.tensor(csv_data_row.values, dtype=torch.float)
         target = self.targets[idx]
-        return (image, csv), target
 
+        return (image, csv), target
     
 
-
-def balanced_weights(dataset, nclasses):
-    # Initialize a list to count occurrences of each class
-    count = [0] * nclasses
-    # Count each class's occurrences in the dataset
-    for _, label in dataset:
-        count[label] += 1
-    # Initialize a list to hold the weight for each class
-    weight_per_class = [0.] * nclasses
-    # Total number of samples in the dataset
-    N = float(sum(count))
-    # Calculate the weight for each class
-    for i in range(nclasses):
-        weight_per_class[i] = N / float(count[i])
-    # Assign weight to each sample in the dataset based on its class
-    weights = [weight_per_class[label] for _, label in dataset]
-    return weights
-
-
-def calculate_weights(file_path):
-    df = pd.read_csv(file_path)
-    class_counts = df['target'].value_counts().to_dict()
-    total_samples = len(df)
-    weights = {cls: total_samples/count for cls, count in class_counts.items()}
-    sample_weights = df['target'].map(weights)
-    return sample_weights.tolist()
-
-
-
+        
+    def get_class_distribution(self):
+        """
+        Returns a count of how many instances exist for each class in the dataset.
+        """
+        return self.data_frame['target'].value_counts().to_dict()

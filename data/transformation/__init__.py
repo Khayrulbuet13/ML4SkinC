@@ -36,13 +36,13 @@ class ImgAugTransform:
         img = self.aug.augment_image(img)
         return img
 
-
-val_transform = T.Compose([T.Resize((64, 64)),
+im_size = 128
+val_transform = T.Compose([T.Resize((im_size, im_size)),
                            T.ToTensor(),
                            T.Normalize((0.6984, 0.5219, 0.4197), (0.1396, 0.1318, 0.1236)) 
                            ])
 
-train_transform = T.Compose([T.Resize((64, 64)),
+train_transform = T.Compose([T.Resize((im_size, im_size)),
                             ImgAugTransform(),
                              T.ToTensor(),
                              # value calculated by calculating the mean and std of the dataset

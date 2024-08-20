@@ -1,2 +1,2 @@
 from losses.loss import FocalLoss
-from losses.loss import VSLoss, VSLossLCT, VSLossAug
+from losses.loss import VSLoss, VSLossLCT, VSLossAug, VSKLloss

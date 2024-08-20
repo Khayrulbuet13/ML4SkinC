@@ -15,8 +15,8 @@ class FocalLoss(nn.Module):
         self.gamma = gamma
         self.reduction = reduction
 
-    def forward(self, inputs, targets):
-        BCE_loss = F.cross_entropy(inputs, targets, reduction='none')
+    def forward(self, outputs, targets):
+        BCE_loss = F.cross_entropy(outputs, targets, reduction='none')
         pt = torch.exp(-BCE_loss)  # prevents nans when probability is 0
         F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
         
@@ -26,6 +26,33 @@ class FocalLoss(nn.Module):
             return F_loss.sum()
         else:
             return F_loss
+
+class FocalKLLoss(FocalLoss):
+    def __init__(self, alpha=1, gamma=2, kl_lambda=0.9, reduction='mean'):
+        """
+        Initializes FocalKLLoss, combining Focal Loss with KL Divergence.
+        :param alpha: Balancing factor for class imbalance.
+        :param gamma: Focusing parameter.
+        :param kl_lambda: Weighting factor for combining Focal Loss and KL Loss.
+        :param reduction: Specifies the reduction to apply to the output: 'none' | 'mean' | 'sum'.
+        """
+        super(FocalKLLoss, self).__init__(alpha=alpha, gamma=gamma, reduction=reduction)
+        self.kl_lambda = kl_lambda
+
+    def forward(self, outputs, targets):
+        # Calculate the standard Focal Loss
+        F_loss = super(FocalKLLoss, self).forward(outputs, targets)
+
+        # Compute KL divergence
+        probs = F.softmax(outputs, dim=1)
+        target_one_hot = F.one_hot(targets, num_classes=probs.size(1)).float()
+        kl_loss = F.kl_div(probs.log(), target_one_hot, reduction='batchmean')
+
+        # Combine the Focal Loss and KL Divergence
+        total_loss = self.kl_lambda * F_loss + (1 - self.kl_lambda) * kl_loss
+
+        return total_loss
+
 
 
 
@@ -46,19 +73,23 @@ def get_binary_omega_list(omega, device, minority_class=1):
          weights = [1 - omega, omega]
     else:
          weights = [omega, 1 - omega]
+
     return torch.FloatTensor(weights).to(device)
 
 
 def get_delta_list(class_dist, gamma, device):
     temp = (1.0 / np.array(class_dist)) ** gamma
     delta_list = temp / np.min(temp)
+
     return torch.FloatTensor(delta_list).to(device)
 
 
 def get_iota_list(class_dist, tau, device):
     cls_probs = [cls_num / sum(class_dist) for cls_num in class_dist]
     iota_list = tau * np.log(cls_probs)
+
     return torch.FloatTensor(iota_list).to(device)
+
 
 
 class VSLoss(nn.Module):
@@ -79,9 +110,40 @@ class VSLoss(nn.Module):
 
     def forward(self, x, target):
         if self.iota_list is not None and self.delta_list is not None:
-            output = x / self.delta_list + self.iota_list
+            output = x * self.delta_list + self.iota_list
 
         return F.cross_entropy(output, target, weight=self.omega_list)
+    
+
+
+
+class VSKLloss(VSLoss):
+    '''
+    Cite: https://github.com/orparask/VS-Loss/blob/main/class_imbalance/losses.py
+    '''
+
+    def __init__(self, class_dist, device, omega=0.5, gamma=0.3, tau=1.0, kl_lambda=0.9):
+        super().__init__(class_dist, device, omega, gamma, tau)
+        self.kl_lambda = kl_lambda
+
+    def forward(self, x, target):
+        output = x * self.delta_list + self.iota_list
+        
+        # VS Loss from VSLoss
+        vs_loss = super().forward(x, target)
+
+        # Compute KL divergence
+        epsilon = 1e-6
+        probs = F.softmax(output, dim=1)
+        probs = torch.clamp(probs, epsilon, 1 - epsilon)  # Clamping probabilities for numerical stability
+
+        target_one_hot = F.one_hot(target, num_classes=probs.size(1)).float()
+        kl_loss = F.kl_div(probs.log(), target_one_hot, reduction='batchmean')
+
+        # Combine the losses
+        total_loss = self.kl_lambda * vs_loss + (1 - self.kl_lambda) * kl_loss
+
+        return total_loss
     
 
 
@@ -98,6 +160,7 @@ class VSLossAug(nn.Module):
             print(f'Warning: Hyperparameter Omega is not being used since this is a"\
                   " multi-class dataset.')
             self.omega_list = get_omega_list(class_dist, device, k=1)
+
         self.delta_list = get_delta_list(class_dist, gamma, device)
         self.iota_list = get_iota_list(class_dist, tau, device)
 
