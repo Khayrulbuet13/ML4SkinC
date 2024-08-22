@@ -36,7 +36,7 @@ class ImgAugTransform:
         img = self.aug.augment_image(img)
         return img
 
-im_size = 224
+im_size = 128
 
 val_transform = T.Compose([T.Resize((im_size, im_size)),
                            T.ToTensor(),

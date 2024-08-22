@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 from comet_ml import Experiment
 import torch
@@ -33,9 +33,9 @@ def main():
     params = {
         'lr': 0.016,
         'weight_decay': .001, # best 0.001
-        'batch_size': 512,
+        'batch_size': 256,
         'epochs': 1000,
-        'model': 'resnet50-x224-KL0.4',
+        'model': 'efficientnet-x128-KL0.4',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.1,  # Example value for gamma
