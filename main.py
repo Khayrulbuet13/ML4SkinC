@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 from comet_ml import Experiment
 import torch
@@ -33,9 +33,10 @@ def main():
     params = {
         'lr': 0.016,
         'weight_decay': .001, # best 0.001
-        'batch_size': 256,
+        'batch_size': 128,
         'epochs': 1000,
-        'model': 'efficientnet-x128-KL0.4',
+        'cnn': 'edgenext_small',
+        'model': 'edgenext_small-x128-KL0.4',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.1,  # Example value for gamma
@@ -86,7 +87,8 @@ def main():
 
     
     # Model setup
-    model = cnn.to(device)
+    model = cnn(model_name=params['cnn'], pretrained=True, num_classes=2)
+    model = model.to(device)
 
 
     # Load existing model if available
@@ -96,7 +98,7 @@ def main():
     #     logging.info(f'Model loaded from {model_saved_path}')
 
     # Model summaries
-    logging.info(summary(model, input_size=(3, 64, 64)))
+    # logging.info(summary(model, input_size=(3, 64, 64)))
 
 
     # Optimizer and training configuration
