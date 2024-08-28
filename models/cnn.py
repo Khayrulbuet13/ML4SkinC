@@ -3,9 +3,9 @@ from torch import nn
 import timm
 
 # original resnet50 model
-# cnn = models.resnet50(weights='IMAGENET1K_V1')
-# num_ftrs = cnn.fc.in_features
-# cnn.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes (benign and malignant)
+cnn = models.resnet18(weights='IMAGENET1K_V1')
+num_ftrs = cnn.fc.in_features
+cnn.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes (benign and malignant)
 
 
 
@@ -53,22 +53,22 @@ import timm
 #     cnn.fc = nn.Linear(num_features, 2)  # Set to 2 for binary classification
 
 
-# cnn = cnn
+cnn = cnn
 
 
-def cnn(model_name, pretrained=True, num_classes=2):
-    # Create the model using the specified model name and pretrained option
-    cnn = timm.create_model(model_name, pretrained=pretrained)
+# def cnn(model_name, pretrained=True, num_classes=2):
+#     # Create the model using the specified model name and pretrained option
+#     cnn = timm.create_model(model_name, pretrained=pretrained)
 
-    # Modify the last fully connected layer according to the model's specific last layer identifier
-    if hasattr(cnn, 'classifier'):
-        num_features = cnn.classifier.in_features
-        cnn.classifier = nn.Linear(num_features, num_classes)
-    elif hasattr(cnn, 'fc'):
-        num_features = cnn.fc.in_features
-        cnn.fc = nn.Linear(num_features, num_classes)
-    elif hasattr(cnn, 'head'):
-        num_features = cnn.head.fc.in_features
-        cnn.head.fc = nn.Linear(num_features, num_classes)
+#     # Modify the last fully connected layer according to the model's specific last layer identifier
+#     if hasattr(cnn, 'classifier'):
+#         num_features = cnn.classifier.in_features
+#         cnn.classifier = nn.Linear(num_features, num_classes)
+#     elif hasattr(cnn, 'fc'):
+#         num_features = cnn.fc.in_features
+#         cnn.fc = nn.Linear(num_features, num_classes)
+#     elif hasattr(cnn, 'head'):
+#         num_features = cnn.head.fc.in_features
+#         cnn.head.fc = nn.Linear(num_features, num_classes)
 
-    return cnn
+#     return cnn

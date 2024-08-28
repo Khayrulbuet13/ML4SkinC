@@ -1,7 +1,7 @@
 import os
 # from utils import get_least_used_gpu
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(get_least_used_gpu())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from comet_ml import Experiment
 import torch
@@ -33,10 +33,10 @@ def main():
     params = {
         'lr': 0.016,
         'weight_decay': .001, # best 0.001
-        'batch_size': 128,
+        'batch_size': 1024,
         'epochs': 1000,
-        'cnn': 'edgenext_small',
-        'model': 'edgenext_small-x128-KL0.4',
+        'cnn': 'resnet18',
+        'model': 'resnet18_reproduce-x128-control',
         'train_resnet': True,  # Allows controlling trainability of ResNet from params
         'omega': 0.9,  # Example value for omega
         'gamma': 0.1,  # Example value for gamma
@@ -55,14 +55,14 @@ def main():
         }
     columns_to_use = None
     # Data loading
-    train_dl, val_dl, test_dl = get_dataloader( data_dir=os.path.join(project.data_dir, "image"),
+    train_dl, val_dl, test_dl = get_dataloader( data_dir=os.path.join(project.data_dir, "train-image/image"),
                                                 csv_path=os.path.join(project.data_dir, "train-metadata.csv"),
                                                 columns_to_use=columns_to_use,
                                                 class_mapping = class_mapping,
                                                 total_images=None,
                                                 train_transform=train_transform,
                                                 val_transform=val_transform,
-                                                split=(0.8, 0.1, 0.1), 
+                                                split=(0.6, 0.2, 0.2), 
                                                 batch_size=params['batch_size'],
                                                 pin_memory=True,
                                                 num_workers=8)
@@ -87,8 +87,9 @@ def main():
 
     
     # Model setup
-    model = cnn(model_name=params['cnn'], pretrained=True, num_classes=2)
-    model = model.to(device)
+    # model = cnn(model_name=params['cnn'], pretrained=True, num_classes=2)
+    # model = model.to(device)
+    model = cnn.to(device)
 
 
     # Load existing model if available
@@ -109,15 +110,15 @@ def main():
         
 
 
-    # # Initialize VSLoss
-    # # Calculate class distribution
-    # benign_count = 0
-    # malignant_count = 0
-    # for _, target in train_dl:
-    #     benign_count += (target == 0).sum().item()
-    #     malignant_count += (target == 1).sum().item()
-    # class_dist = [benign_count, malignant_count]
-    class_dist =  [320531, 316]                                                                                                                                             
+    # Initialize VSLoss
+    # Calculate class distribution
+    benign_count = 0
+    malignant_count = 0
+    for _, target in train_dl:
+        benign_count += (target == 0).sum().item()
+        malignant_count += (target == 1).sum().item()
+    class_dist = [benign_count, malignant_count]
+    # class_dist =  [320531, 316]                                                                                                                                             
     
 
     print(f'Class distribution: {class_dist}')
